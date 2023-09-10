@@ -12,22 +12,20 @@ import (
 )
 
 func Run(
+    rootModule string,
     rootPath string,
     protoDirectory string,
-    outputDirectory string,
 ) {
     log.Println("INFO: Cleaning up...")
 
-    err := cleanup(rootPath, outputDirectory)
+    err := cleanup(rootPath)
     if err != nil {
         log.Fatalf("FAIL: Can not list generated files\n%s", err)
-        os.Exit(1)
     }
     
-    err = generate(rootPath, protoDirectory, outputDirectory)
+    err = generate(rootModule, rootPath, protoDirectory)
     if err != nil {
         log.Fatalf("FAIL: Can not generate proto\n%s", err)
-        os.Exit(2)
     }
 
     log.Println("INFO: Proto generated")
@@ -35,10 +33,16 @@ func Run(
 
 func cleanup(
     rootPath string,
-    outputDirectory string,
 ) error {
+    if _, err := os.Stat(rootPath); err != nil {
+        if os.IsNotExist(err) {
+            return nil
+        }
+        return err
+    }
+
     err := filepath.WalkDir(
-        filepath.Join(rootPath, outputDirectory),
+        rootPath,
         func(path string, d fs.DirEntry, err error) error {
             if err != nil {
                 return err
@@ -59,30 +63,72 @@ func cleanup(
 }
 
 func generate(
+    rootModule string,
     rootPath string, 
     protoDirectory string,
-    outputDirectory string,
 ) error {
-    targetProtoDirectory := filepath.Join(rootPath, protoDirectory)
+    protoPath := filepath.Join(rootPath, protoDirectory)
 
     argProtoPath := fmt.Sprintf(
-        "--proto_path=%s/%s", 
-        rootPath, 
-        protoDirectory,
+        "--proto_path=%s", 
+        protoPath,
     )
     argGoOut := fmt.Sprintf(
-        "--go_out=%s", 
+        "--go_out=paths=source_relative:%s", 
         rootPath,
     )
     argGoGrpcOut := fmt.Sprintf(
-        "--go-grpc_out=%s", 
+        "--go-grpc_out=paths=source_relative:%s", 
         rootPath,
     )
 
+    argsOpt := make([]string, 0)
+
     err := filepath.WalkDir(
-        targetProtoDirectory,
+        protoPath,
         func(path string, d fs.DirEntry, err error) error {
+            if err != nil { 
+                return err
+            }
+            if !strings.HasSuffix(path, ".proto") {
+                return nil
+            }
+
+            log.Printf("INFO: Collecting %s...\n", path)
+
+            relativePath, err := filepath.Rel(protoPath, path)
             if err != nil {
+                return err
+            }
+            
+            fileModule := filepath.Dir(relativePath)
+                
+            argGoOpt := fmt.Sprintf(
+                "--go_opt=M%s=%s/%s", 
+                relativePath, 
+                rootModule,
+                fileModule,
+            )
+            argGoGrpcOpt := fmt.Sprintf(
+                "--go-grpc_opt=M%s=%s/%s", 
+                relativePath, 
+                rootModule,
+                fileModule,
+            )
+
+            argsOpt = append(argsOpt, argGoOpt, argGoGrpcOpt)
+
+            return nil
+        },
+    )
+    if err != nil {
+        return err
+    }
+
+    return filepath.WalkDir(
+        protoPath,
+        func(path string, d fs.DirEntry, err error) error {
+            if err != nil { 
                 return err
             }
             if !strings.HasSuffix(path, ".proto") {
@@ -91,34 +137,17 @@ func generate(
 
             log.Printf("INFO: Generating %s...\n", path)
 
-            relativePath := strings.TrimPrefix(path, targetProtoDirectory)[1:]
-
-            fileModule := strings.TrimSuffix(
-                relativePath,
-                ".proto",
-            )
-                
-            argGoOpt := fmt.Sprintf(
-                "--go_opt=M%s=%s/%s", 
-                relativePath, 
-                outputDirectory, 
-                fileModule,
-            )
-            argGoGrpcOpt := fmt.Sprintf(
-                "--go-grpc_opt=M%s=%s/%s", 
-                relativePath, 
-                outputDirectory, 
-                fileModule,
+            args := append(
+                argsOpt,
+                argProtoPath,
+                argGoOut,
+                argGoGrpcOut,
+                path,
             )
 
             cmd := exec.Command(
                 "protoc", 
-                argProtoPath,
-                argGoOut,
-                argGoGrpcOut,
-                argGoOpt,
-                argGoGrpcOpt,
-                path,
+                args...,
             )
 
             if _, err := cmd.Output(); err != nil {
@@ -132,9 +161,4 @@ func generate(
             return nil
         },
     )
-    if err != nil {
-        return err
-    }
-
-    return nil
 }
