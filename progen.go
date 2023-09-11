@@ -11,19 +11,20 @@ import (
 	"strings"
 )
 
-func Run(
+func Generate(
     rootModule string,
     rootPath string,
     protoDirectory string,
+    targetDirectory string,
 ) {
     log.Println("INFO: Cleaning up...")
 
-    err := cleanup(rootPath)
+    err := cleanup(rootPath, targetDirectory)
     if err != nil {
         log.Fatalf("FAIL: Can not list generated files\n%s", err)
     }
     
-    err = generate(rootModule, rootPath, protoDirectory)
+    err = generate(rootModule, rootPath, protoDirectory, targetDirectory)
     if err != nil {
         log.Fatalf("FAIL: Can not generate proto\n%s", err)
     }
@@ -33,8 +34,11 @@ func Run(
 
 func cleanup(
     rootPath string,
+    targetDirectory string,
 ) error {
-    if _, err := os.Stat(rootPath); err != nil {
+    targetPath := filepath.Join(rootPath, targetDirectory)
+
+    if _, err := os.Stat(targetPath); err != nil {
         if os.IsNotExist(err) {
             return nil
         }
@@ -42,7 +46,7 @@ func cleanup(
     }
 
     err := filepath.WalkDir(
-        rootPath,
+        targetPath,
         func(path string, d fs.DirEntry, err error) error {
             if err != nil {
                 return err
@@ -66,8 +70,10 @@ func generate(
     rootModule string,
     rootPath string, 
     protoDirectory string,
+    targetDirectory string,
 ) error {
     protoPath := filepath.Join(rootPath, protoDirectory)
+    targetPath := filepath.Join(rootPath, targetDirectory)
 
     argProtoPath := fmt.Sprintf(
         "--proto_path=%s", 
@@ -75,12 +81,14 @@ func generate(
     )
     argGoOut := fmt.Sprintf(
         "--go_out=paths=source_relative:%s", 
-        rootPath,
+        targetPath,
     )
     argGoGrpcOut := fmt.Sprintf(
         "--go-grpc_out=paths=source_relative:%s", 
-        rootPath,
+        targetPath,
     )
+
+    targetModule := strings.Trim(filepath.ToSlash(targetDirectory), "/")
 
     argsOpt := make([]string, 0)
 
@@ -104,15 +112,16 @@ func generate(
             fileModule := filepath.Dir(relativePath)
                 
             argGoOpt := fmt.Sprintf(
-                "--go_opt=M%s=%s/%s", 
+                "--go_opt=M%s=%s/%s/%s", 
                 relativePath, 
                 rootModule,
                 fileModule,
             )
             argGoGrpcOpt := fmt.Sprintf(
-                "--go-grpc_opt=M%s=%s/%s", 
+                "--go-grpc_opt=M%s=%s/%s/%s", 
                 relativePath, 
                 rootModule,
+                targetModule,
                 fileModule,
             )
 
