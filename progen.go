@@ -75,6 +75,10 @@ func generate(
     protoPath := filepath.Join(rootPath, protoDirectory)
     targetPath := filepath.Join(rootPath, targetDirectory)
 
+    if err := os.MkdirAll(targetPath, fs.ModePerm); err != nil {
+        return err
+    }
+
     argProtoPath := fmt.Sprintf(
         "--proto_path=%s", 
         protoPath,
@@ -89,6 +93,9 @@ func generate(
     )
 
     targetModule := strings.Trim(filepath.ToSlash(targetDirectory), "/")
+    if len(targetModule) > 0 {
+        targetModule = "/" + targetModule
+    }
 
     argsOpt := make([]string, 0)
 
@@ -109,16 +116,24 @@ func generate(
                 return err
             }
             
-            fileModule := filepath.Dir(relativePath)
+            fileModule := filepath.ToSlash(filepath.Dir(relativePath))
+            if fileModule == "." {
+                fileModule = ""
+            }
+            if len(fileModule) > 0 {
+                fileModule = "/" + fileModule
+            }
                 
             argGoOpt := fmt.Sprintf(
-                "--go_opt=M%s=%s/%s/%s", 
+                "--go_opt=M%s=%s%s%s", 
                 relativePath, 
                 rootModule,
+                targetModule,
                 fileModule,
             )
+            
             argGoGrpcOpt := fmt.Sprintf(
-                "--go-grpc_opt=M%s=%s/%s/%s", 
+                "--go-grpc_opt=M%s=%s%s%s", 
                 relativePath, 
                 rootModule,
                 targetModule,
